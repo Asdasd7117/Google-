@@ -1,15 +1,14 @@
-const axios = require("axios");
+const ccxt = require("ccxt");
 const TelegramBot = require("node-telegram-bot-api");
 
 const TOKEN = "YOUR_TELEGRAM_BOT_TOKEN";
 const CHAT_ID = "YOUR_CHAT_ID";
 
 const bot = new TelegramBot(TOKEN);
+const exchange = new ccxt.binance();
 
-let lastState = {}; 
-// لتجنب تكرار الإشارات
+let lastState = {};
 
-// ================= EMA CALC =================
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
@@ -21,24 +20,20 @@ function EMA(data, period) {
     return ema;
 }
 
-// ================= GET COINS =================
 async function getSymbols() {
-    const res = await axios.get("https://api.binance.com/api/v3/ticker/24hr");
-
-    return res.data
-        .filter(c => c.symbol.endsWith("USDT"))
-        .filter(c => parseFloat(c.lastPrice) < 5)
-        .map(c => c.symbol);
+    const tickers = await exchange.fetchTickers();
+    return Object.keys(tickers)
+        .filter(s => s.endsWith("/USDT"))
+        .filter(s => tickers[s].last < 5)
+        .map(s => s.replace("/", ""));
 }
 
-// ================= CHECK SYMBOL =================
 async function checkSymbol(symbol) {
     try {
-        const res = await axios.get(
-            `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=50`
-        );
-
-        const closes = res.data.map(c => parseFloat(c[4]));
+        const formattedSymbol = symbol.replace("USDT", "/USDT");
+        const ohlcv = await exchange.fetchOHLCV(formattedSymbol, "1h", undefined, 50);
+        
+        const closes = ohlcv.map(c => c[4]);
 
         const ema7 = EMA(closes.slice(-20), 7);
         const ema25 = EMA(closes.slice(-50), 25);
@@ -56,27 +51,21 @@ async function checkSymbol(symbol) {
                     CHAT_ID,
                     `🟢 EMA CROSS UP\nCOIN: ${symbol}\nTIMEFRAME: 1H`
                 );
-
-                console.log("SENT:", symbol);
             }
         } else {
-            // reset so next real cross can trigger again
             lastState[symbol] = false;
         }
 
     } catch (e) {}
 }
 
-// ================= MAIN LOOP =================
 async function run() {
     const symbols = await getSymbols();
-
-    console.log("Coins:", symbols.length);
 
     for (let s of symbols) {
         await checkSymbol(s);
     }
 }
 
-setInterval(run, 60 * 1000); // كل دقيقة فحص
+setInterval(run, 60 * 1000);
 run();
