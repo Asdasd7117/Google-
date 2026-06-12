@@ -12,32 +12,34 @@ let lastState = {};
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
-
     for (let i = 1; i < data.length; i++) {
         ema = data[i] * k + ema * (1 - k);
     }
-
     return ema;
 }
 
 async function getSymbols() {
-    const tickers = await exchange.fetchTickers();
-    return Object.keys(tickers)
-        .filter(s => s.endsWith("/USDT"))
-        .filter(s => tickers[s].last < 5)
-        .map(s => s.replace("/", ""));
+    try {
+        const tickers = await exchange.fetchTickers();
+        return Object.keys(tickers)
+            .filter(s => s.endsWith("/USDT"))
+            .filter(s => tickers[s].last < 5)
+            .sort((a, b) => tickers[b].quoteVolume - tickers[a].quoteVolume)
+            .slice(0, 30) 
+            .map(s => s.replace("/", ""));
+    } catch (e) {
+        return [];
+    }
 }
 
 async function checkSymbol(symbol) {
     try {
         const formattedSymbol = symbol.replace("USDT", "/USDT");
         const ohlcv = await exchange.fetchOHLCV(formattedSymbol, "1h", undefined, 50);
-        
         const closes = ohlcv.map(c => c[4]);
 
         const ema7 = EMA(closes.slice(-20), 7);
         const ema25 = EMA(closes.slice(-50), 25);
-
         const prevEma7 = EMA(closes.slice(-21, -1), 7);
         const prevEma25 = EMA(closes.slice(-21, -1), 25);
 
@@ -46,26 +48,20 @@ async function checkSymbol(symbol) {
         if (crossedUp) {
             if (!lastState[symbol]) {
                 lastState[symbol] = true;
-
-                bot.sendMessage(
-                    CHAT_ID,
-                    `🟢 EMA CROSS UP\nCOIN: ${symbol}\nTIMEFRAME: 1H`
-                );
+                bot.sendMessage(CHAT_ID, `🟢 EMA CROSS UP\nCOIN: ${symbol}\nTIMEFRAME: 1H`);
             }
         } else {
             lastState[symbol] = false;
         }
-
     } catch (e) {}
 }
 
 async function run() {
     const symbols = await getSymbols();
-
     for (let s of symbols) {
         await checkSymbol(s);
     }
 }
 
-setInterval(run, 60 * 1000);
+setInterval(run, 60000);
 run();
