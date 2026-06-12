@@ -4,8 +4,8 @@ http.createServer((req, res) => res.end('Bot is running')).listen(process.env.PO
 const ccxt = require("ccxt");
 const TelegramBot = require("node-telegram-bot-api");
 
-const TOKEN = "YOUR_TELEGRAM_BOT_TOKEN";
-const CHAT_ID = "YOUR_CHAT_ID";
+const TOKEN = "8648255240:AAE8FucgYQ2dXFbPQQkR4uDkGs9dm4wfH-c";
+const CHAT_ID = "6814152338";
 
 const bot = new TelegramBot(TOKEN);
 const exchange = new ccxt.binance();
