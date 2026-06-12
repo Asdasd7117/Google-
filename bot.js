@@ -4,7 +4,7 @@ http.createServer((req, res) => res.end('Bot is running')).listen(process.env.PO
 const ccxt = require("ccxt");
 const TelegramBot = require("node-telegram-bot-api");
 
-const TOKEN = "8648255240:AAE8FucgYQ2dXFbPQQkR4uDkGs9dm4wfH-c";
+const TOKEN = "8648255240:AAHorpEeD9aUHxpt6z-GtL50L22fsSCil0k";
 const CHAT_ID = "6814152338";
 
 const bot = new TelegramBot(TOKEN);
