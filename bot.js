@@ -28,7 +28,7 @@ async function getSymbols() {
             .filter(s => s.endsWith("/USDT"))
             .filter(s => tickers[s].last < 5)
             .sort((a, b) => tickers[b].quoteVolume - tickers[a].quoteVolume)
-            .slice(0, 30) 
+            .slice(0, 300) 
             .map(s => s.replace("/", ""));
     } catch (e) {
         return [];
