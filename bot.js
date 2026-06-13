@@ -51,7 +51,7 @@ async function getSymbols() {
     }
 }
 
-// فحص التقاطع
+// فحص EMA لحظي (Live Cross)
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
@@ -67,38 +67,40 @@ async function checkSymbol(symbol) {
 
         if (closes.length < 60) return;
 
-        // نستخدم فقط الشموع المغلقة
-        const current = closes.slice(0, -1);
-        const prev = closes.slice(0, -2);
+        // EMA الحالي
+        const ema7 = EMA(closes.slice(-50), 7);
+        const ema25 = EMA(closes.slice(-50), 25);
 
-        const ema7_now = EMA(current.slice(-50), 7);
-        const ema25_now = EMA(current.slice(-50), 25);
+        const isBullish = ema7 > ema25;
 
-        const ema7_prev = EMA(prev.slice(-50), 7);
-        const ema25_prev = EMA(prev.slice(-50), 25);
+        const prevState = lastState[symbol];
 
-        const crossedUp =
-            ema7_prev <= ema25_prev &&
-            ema7_now > ema25_now;
+        // أول مرة فقط
+        if (prevState === undefined) {
+            lastState[symbol] = isBullish;
+            return;
+        }
 
-        // إرسال مرة واحدة فقط
-        if (crossedUp && !lastState[symbol]) {
+        // 🟢 تقاطع للأعلى (فوري)
+        if (!prevState && isBullish) {
             lastState[symbol] = true;
 
             await bot.sendMessage(
                 CHAT_ID,
-                `🟢 EMA CROSS UP CONFIRMED
+                `🟢 LIVE EMA CROSS UP
 
 COIN: ${symbol}
 TIMEFRAME: 1H`
             );
 
-            console.log("Signal sent:", symbol);
+            console.log("CROSS UP:", symbol);
         }
 
-        // إعادة التفعيل عند انتهاء الاتجاه
-        if (!crossedUp) {
+        // 🔴 رجوع للأسفل لإعادة التفعيل
+        if (prevState && !isBullish) {
             lastState[symbol] = false;
+
+            console.log("RESET:", symbol);
         }
 
     } catch (e) {
@@ -106,7 +108,7 @@ TIMEFRAME: 1H`
     }
 }
 
-// تشغيل البوت
+// تشغيل الفحص
 async function run() {
     console.log("Scan started:", new Date().toLocaleString());
 
