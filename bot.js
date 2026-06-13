@@ -4,18 +4,19 @@ http.createServer((req, res) => res.end('Bot is running')).listen(process.env.PO
 const ccxt = require("ccxt");
 const TelegramBot = require("node-telegram-bot-api");
 
-const TOKEN = "8648255240:AAHSyARnljC9I5me7_qg0L283lio49JsGP4";
+const TOKEN = "8648255240:AAHCuaLQSHmBoXM9j5AhH8cmHUpjr69p2YY";
 const CHAT_ID = "6814152338";
 
 const bot = new TelegramBot(TOKEN);
 
-// تم التغيير إلى KuCoin
+// KuCoin exchange
 const exchange = new ccxt.kucoin({
     enableRateLimit: true
 });
 
 let lastState = {};
 
+// EMA function
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
@@ -27,18 +28,21 @@ function EMA(data, period) {
     return ema;
 }
 
+// جلب العملات
 async function getSymbols() {
     try {
         const tickers = await exchange.fetchTickers();
 
         const symbols = Object.keys(tickers)
             .filter(s => s.endsWith("/USDT"))
-            .filter(s => tickers[s].last && tickers[s].last < 5)
-            .sort((a, b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0))
-            .slice(0, 300)
+            .filter(s => tickers[s].last && tickers[s].last < 10)
+            .sort((a, b) =>
+                (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0)
+            )
+            .slice(0, 200)
             .map(s => s.replace("/", ""));
 
-        console.log(`Found ${symbols.length} symbols`);
+        console.log(`Symbols found: ${symbols.length}`);
 
         return symbols;
     } catch (e) {
@@ -47,12 +51,13 @@ async function getSymbols() {
     }
 }
 
+// فحص التقاطع
 async function checkSymbol(symbol) {
     try {
-        const formattedSymbol = symbol.replace("USDT", "/USDT");
+        const formatted = symbol.replace("USDT", "/USDT");
 
         const ohlcv = await exchange.fetchOHLCV(
-            formattedSymbol,
+            formatted,
             "1h",
             undefined,
             100
@@ -62,52 +67,58 @@ async function checkSymbol(symbol) {
 
         if (closes.length < 60) return;
 
-        const previousCloses = closes.slice(0, -1);
+        // نستخدم فقط الشموع المغلقة
+        const current = closes.slice(0, -1);
+        const prev = closes.slice(0, -2);
 
-        const ema7Prev = EMA(previousCloses.slice(-50), 7);
-        const ema25Prev = EMA(previousCloses.slice(-50), 25);
+        const ema7_now = EMA(current.slice(-50), 7);
+        const ema25_now = EMA(current.slice(-50), 25);
 
-        const ema7Now = EMA(closes.slice(-50), 7);
-        const ema25Now = EMA(closes.slice(-50), 25);
+        const ema7_prev = EMA(prev.slice(-50), 7);
+        const ema25_prev = EMA(prev.slice(-50), 25);
 
         const crossedUp =
-            ema7Prev <= ema25Prev &&
-            ema7Now > ema25Now;
+            ema7_prev <= ema25_prev &&
+            ema7_now > ema25_now;
 
+        // إرسال مرة واحدة فقط
         if (crossedUp && !lastState[symbol]) {
             lastState[symbol] = true;
 
             await bot.sendMessage(
                 CHAT_ID,
-                `🟢 EMA7 CROSS EMA25 UP
+                `🟢 EMA CROSS UP CONFIRMED
 
 COIN: ${symbol}
 TIMEFRAME: 1H`
             );
 
-            console.log(`Signal sent: ${symbol}`);
+            console.log("Signal sent:", symbol);
         }
 
+        // إعادة التفعيل عند انتهاء الاتجاه
         if (!crossedUp) {
             lastState[symbol] = false;
         }
 
     } catch (e) {
-        console.log(`${symbol}: ${e.message}`);
+        console.log(symbol, "error:", e.message);
     }
 }
 
+// تشغيل البوت
 async function run() {
-    console.log(`Scan started: ${new Date().toLocaleString()}`);
+    console.log("Scan started:", new Date().toLocaleString());
 
     const symbols = await getSymbols();
 
-    for (const symbol of symbols) {
-        await checkSymbol(symbol);
+    for (const s of symbols) {
+        await checkSymbol(s);
     }
 
     console.log("Scan finished");
 }
 
+// تشغيل كل دقيقة
 setInterval(run, 60000);
 run();
