@@ -9,8 +9,8 @@ const CHAT_ID = "6814152338";
 
 const bot = new TelegramBot(TOKEN);
 
-// Bybit بدلاً من Binance
-const exchange = new ccxt.bybit({
+// تم التغيير إلى KuCoin
+const exchange = new ccxt.kucoin({
     enableRateLimit: true
 });
 
@@ -35,7 +35,8 @@ async function getSymbols() {
             .filter(s => s.endsWith("/USDT"))
             .filter(s => tickers[s].last && tickers[s].last < 5)
             .sort((a, b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0))
-            .slice(0, 300);
+            .slice(0, 300)
+            .map(s => s.replace("/", ""));
 
         console.log(`Found ${symbols.length} symbols`);
 
@@ -48,7 +49,14 @@ async function getSymbols() {
 
 async function checkSymbol(symbol) {
     try {
-        const ohlcv = await exchange.fetchOHLCV(symbol, "1h", undefined, 100);
+        const formattedSymbol = symbol.replace("USDT", "/USDT");
+
+        const ohlcv = await exchange.fetchOHLCV(
+            formattedSymbol,
+            "1h",
+            undefined,
+            100
+        );
 
         const closes = ohlcv.map(c => c[4]);
 
@@ -71,7 +79,10 @@ async function checkSymbol(symbol) {
 
             await bot.sendMessage(
                 CHAT_ID,
-                `🟢 EMA7 CROSS EMA25 UP\n\nCOIN: ${symbol}\nTIMEFRAME: 1H`
+                `🟢 EMA7 CROSS EMA25 UP
+
+COIN: ${symbol}
+TIMEFRAME: 1H`
             );
 
             console.log(`Signal sent: ${symbol}`);
