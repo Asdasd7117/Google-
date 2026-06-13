@@ -15,22 +15,30 @@ let lastState = {};
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
+
     for (let i = 1; i < data.length; i++) {
         ema = data[i] * k + ema * (1 - k);
     }
+
     return ema;
 }
 
 async function getSymbols() {
     try {
         const tickers = await exchange.fetchTickers();
-        return Object.keys(tickers)
+
+        const symbols = Object.keys(tickers)
             .filter(s => s.endsWith("/USDT"))
             .filter(s => tickers[s].last < 5)
             .sort((a, b) => tickers[b].quoteVolume - tickers[a].quoteVolume)
-            .slice(0, 300) 
+            .slice(0, 300)
             .map(s => s.replace("/", ""));
+
+        console.log(`Found ${symbols.length} symbols`);
+
+        return symbols;
     } catch (e) {
+        console.log("getSymbols error:", e.message);
         return [];
     }
 }
@@ -38,32 +46,63 @@ async function getSymbols() {
 async function checkSymbol(symbol) {
     try {
         const formattedSymbol = symbol.replace("USDT", "/USDT");
-        const ohlcv = await exchange.fetchOHLCV(formattedSymbol, "1h", undefined, 50);
+
+        const ohlcv = await exchange.fetchOHLCV(
+            formattedSymbol,
+            "1h",
+            undefined,
+            100
+        );
+
         const closes = ohlcv.map(c => c[4]);
 
-        const ema7 = EMA(closes.slice(-20), 7);
-        const ema25 = EMA(closes.slice(-50), 25);
-        const prevEma7 = EMA(closes.slice(-21, -1), 7);
-        const prevEma25 = EMA(closes.slice(-21, -1), 25);
+        if (closes.length < 60) return;
 
-        const crossedUp = prevEma7 <= prevEma25 && ema7 > ema25;
+        const previousCloses = closes.slice(0, -1);
 
-        if (crossedUp) {
-            if (!lastState[symbol]) {
-                lastState[symbol] = true;
-                bot.sendMessage(CHAT_ID, `🟢 EMA CROSS UP\nCOIN: ${symbol}\nTIMEFRAME: 1H`);
-            }
-        } else {
+        const ema7Prev = EMA(previousCloses.slice(-50), 7);
+        const ema25Prev = EMA(previousCloses.slice(-50), 25);
+
+        const ema7Now = EMA(closes.slice(-50), 7);
+        const ema25Now = EMA(closes.slice(-50), 25);
+
+        const crossedUp =
+            ema7Prev <= ema25Prev &&
+            ema7Now > ema25Now;
+
+        if (crossedUp && !lastState[symbol]) {
+            lastState[symbol] = true;
+
+            await bot.sendMessage(
+                CHAT_ID,
+                `🟢 EMA7 CROSS EMA25 UP
+
+COIN: ${symbol}
+TIMEFRAME: 1H`
+            );
+
+            console.log(`Signal sent: ${symbol}`);
+        }
+
+        if (!crossedUp) {
             lastState[symbol] = false;
         }
-    } catch (e) {}
+
+    } catch (e) {
+        console.log(`${symbol}: ${e.message}`);
+    }
 }
 
 async function run() {
+    console.log(`Scan started: ${new Date().toLocaleString()}`);
+
     const symbols = await getSymbols();
-    for (let s of symbols) {
-        await checkSymbol(s);
+
+    for (const symbol of symbols) {
+        await checkSymbol(symbol);
     }
+
+    console.log("Scan finished");
 }
 
 setInterval(run, 60000);
