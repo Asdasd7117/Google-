@@ -13,7 +13,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 let lastProcessedHour = -1;
 
-// دالة EMA دقيقة
+// دالة حساب الـ EMA
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
@@ -23,7 +23,7 @@ function EMA(data, period) {
     return ema;
 }
 
-// دالة فحص التقاطع (المنطق المصحح)
+// دالة فحص العملة
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
@@ -31,33 +31,41 @@ async function checkSymbol(symbol) {
         
         if (ohlcv.length < 50) return;
 
-        // استخراج الإغلاقات
         const closes = ohlcv.map(c => c[4]);
         
-        // حساب القيم للشمعة قبل الأخيرة (سابقاً)
+        // حساب القيم للشمعة السابقة
         const prevCloses = closes.slice(0, -1);
-        const ema5Prev = EMA(prevCloses.slice(-25), 5);
-        const ema25Prev = EMA(prevCloses.slice(-25), 25);
+        const ema5Prev = EMA(prevCloses.slice(-50), 5);
+        const ema25Prev = EMA(prevCloses.slice(-50), 25);
         
-        // حساب القيم للشمعة الأخيرة المغلقة (حالياً)
+        // حساب القيم للشمعة الحالية (المغلقة)
         const currCloses = closes;
-        const ema5Curr = EMA(currCloses.slice(-25), 5);
-        const ema25Curr = EMA(currCloses.slice(-25), 25);
+        const ema5Curr = EMA(currCloses.slice(-50), 5);
+        const ema25Curr = EMA(currCloses.slice(-50), 25);
 
-        // شرط التقاطع الذهبي: كان تحت وأصبح فوق
+        // شرط التقاطع (السريع 5 يقطع البطيء 25 للأعلى)
         const wasBullish = ema5Prev > ema25Prev;
         const isBullish = ema5Curr > ema25Curr;
 
         if (!wasBullish && isBullish) {
-            await bot.sendMessage(CHAT_ID, `🟢 GOLDEN CROSS DETECTED\n\nCOIN: ${symbol}\nEMA5 > EMA25 (Confirmed)\nTime: ${new Date().toLocaleString()}`);
-            console.log("CROSS DETECTED:", symbol);
+            // إرسال القيم للتأكد من دقة الحساب
+            const message = `🟢 GOLDEN CROSS DETECTED
+━━━━━━━━━━━━
+💰 COIN: ${symbol}
+📈 EMA 5:  ${ema5Curr.toFixed(6)}
+📉 EMA 25: ${ema25Curr.toFixed(6)}
+━━━━━━━━━━━━
+⏰ Time: ${new Date().toLocaleString()}`;
+
+            await bot.sendMessage(CHAT_ID, message);
+            console.log("CROSS DETECTED:", symbol, "EMA5:", ema5Curr.toFixed(6), "EMA25:", ema25Curr.toFixed(6));
         }
     } catch (e) {
         // تجاهل الخطأ
     }
 }
 
-// دالة التشغيل المجزأ
+// دالة تشغيل الفحص
 async function runScan(start, end) {
     try {
         const tickers = await exchange.fetchTickers();
@@ -67,20 +75,20 @@ async function runScan(start, end) {
             .sort((a, b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0))
             .slice(start, end);
 
-        console.log(`Scanning ${allSymbols.length} symbols (Index ${start} to ${end})...`);
+        console.log(`Scanning ${allSymbols.length} symbols...`);
 
         const CHUNK_SIZE = 10;
         for (let i = 0; i < allSymbols.length; i += CHUNK_SIZE) {
             const chunk = allSymbols.slice(i, i + CHUNK_SIZE);
             await Promise.all(chunk.map(s => checkSymbol(s.replace("/", ""))));
-            await sleep(500);
+            await sleep(500); 
         }
     } catch (e) {
-        console.log("Error during scan:", e.message);
+        console.log("Scan error:", e.message);
     }
 }
 
-// المجدول الرئيسي
+// المجدول (فحص 600 عملة في أول 3 دقائق من الساعة)
 setInterval(async () => {
     const now = new Date();
     const currentHour = now.getHours();
@@ -88,15 +96,12 @@ setInterval(async () => {
 
     if (currentHour !== lastProcessedHour) {
         if (currentMinute === 0) {
-            console.log("Min 0: Running Batch 1");
             await runScan(0, 200);
         } else if (currentMinute === 1) {
-            console.log("Min 1: Running Batch 2");
             await runScan(200, 400);
         } else if (currentMinute === 2) {
-            console.log("Min 2: Running Batch 3");
             await runScan(400, 600);
-            lastProcessedHour = currentHour; // التحديث هنا لإنهاء الدورة
+            lastProcessedHour = currentHour; // التحديث لإنهاء الدورة
         }
     }
 }, 60000);
