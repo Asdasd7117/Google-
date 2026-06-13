@@ -6,121 +6,90 @@ const TelegramBot = require("node-telegram-bot-api");
 
 const TOKEN = "8648255240:AAHCuaLQSHmBoXM9j5AhH8cmHUpjr69p2YY";
 const CHAT_ID = "6814152338";
-
 const bot = new TelegramBot(TOKEN);
 
-// KuCoin exchange
-const exchange = new ccxt.kucoin({
-    enableRateLimit: true
-});
+const exchange = new ccxt.kucoin({ enableRateLimit: true });
+let lastProcessedHour = -1; // لمنع التكرار داخل نفس الساعة
 
-let lastState = {};
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// EMA function
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
-
     for (let i = 1; i < data.length; i++) {
         ema = data[i] * k + ema * (1 - k);
     }
-
     return ema;
 }
 
-// جلب العملات
-async function getSymbols() {
-    try {
-        const tickers = await exchange.fetchTickers();
-
-        const symbols = Object.keys(tickers)
-            .filter(s => s.endsWith("/USDT"))
-            .filter(s => tickers[s].last && tickers[s].last < 10)
-            .sort((a, b) =>
-                (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0)
-            )
-            .slice(0, 200)
-            .map(s => s.replace("/", ""));
-
-        console.log(`Symbols found: ${symbols.length}`);
-
-        return symbols;
-    } catch (e) {
-        console.log("getSymbols error:", e.message);
-        return [];
-    }
-}
-
-// فحص EMA لحظي (Live Cross)
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
+        // جلب الشموع (الساعة)
+        const ohlcv = await exchange.fetchOHLCV(formatted, "1h", undefined, 50);
+        
+        // نأخذ الشموع المغلقة فقط (استبعاد الحالية)
+        const closes = ohlcv.slice(0, -1).map(c => c[4]);
+        if (closes.length < 30) return;
 
-        const ohlcv = await exchange.fetchOHLCV(
-            formatted,
-            "1h",
-            undefined,
-            100
-        );
+        // حساب التقاطع للشموع المغلقة
+        const prevCloses = closes.slice(0, -1); // الشمعة قبل الأخيرة
+        const currCloses = closes; // آخر شمعة أغلقت
 
-        const closes = ohlcv.map(c => c[4]);
+        const isBullishPrev = EMA(prevCloses.slice(-25), 5) > EMA(prevCloses.slice(-25), 25);
+        const isBullishCurr = EMA(currCloses.slice(-25), 5) > EMA(currCloses.slice(-25), 25);
 
-        if (closes.length < 60) return;
-
-        // EMA الحالي
-        const ema7 = EMA(closes.slice(-50), 7);
-        const ema25 = EMA(closes.slice(-50), 25);
-
-        const isBullish = ema7 > ema25;
-
-        const prevState = lastState[symbol];
-
-        // أول مرة فقط
-        if (prevState === undefined) {
-            lastState[symbol] = isBullish;
-            return;
-        }
-
-        // 🟢 تقاطع للأعلى (فوري)
-        if (!prevState && isBullish) {
-            lastState[symbol] = true;
-
-            await bot.sendMessage(
-                CHAT_ID,
-                `🟢 LIVE EMA CROSS UP
-
-COIN: ${symbol}
-TIMEFRAME: 1H`
-            );
-
+        // إذا حدث التقاطع للتو (كان تحت وصار فوق)
+        if (!isBullishPrev && isBullishCurr) {
+            await bot.sendMessage(CHAT_ID, `🟢 EMA CROSS UP (Confirmed)\n\nCOIN: ${symbol}\nTime: ${new Date().toLocaleString()}`);
             console.log("CROSS UP:", symbol);
         }
-
-        // 🔴 رجوع للأسفل لإعادة التفعيل
-        if (prevState && !isBullish) {
-            lastState[symbol] = false;
-
-            console.log("RESET:", symbol);
-        }
-
     } catch (e) {
-        console.log(symbol, "error:", e.message);
+        console.log("Error checking", symbol, e.message);
     }
 }
 
-// تشغيل الفحص
-async function run() {
-    console.log("Scan started:", new Date().toLocaleString());
+async function runBatchedScan() {
+    console.log("Fetching all symbols...");
+    try {
+        const tickers = await exchange.fetchTickers();
+        const allSymbols = Object.keys(tickers)
+            .filter(s => s.endsWith("/USDT"))
+            .filter(s => tickers[s].last && tickers[s].last <= 5)
+            .sort((a, b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0))
+            .slice(0, 600)
+            .map(s => s.replace("/", ""));
 
-    const symbols = await getSymbols();
+        // تقسيم لـ 3 مجموعات (200 لكل مجموعة)
+        const batch1 = allSymbols.slice(0, 200);
+        const batch2 = allSymbols.slice(200, 400);
+        const batch3 = allSymbols.slice(400, 600);
 
-    for (const s of symbols) {
-        await checkSymbol(s);
+        const batches = [batch1, batch2, batch3];
+
+        // تنفيذ المجموعات
+        for (let i = 0; i < batches.length; i++) {
+            console.log(`Starting Batch ${i + 1} with ${batches[i].length} symbols`);
+            for (const symbol of batches[i]) {
+                await checkSymbol(symbol);
+                await sleep(300); // 💡 تأخير 300ms ضروري جداً
+            }
+        }
+        console.log("All batches finished.");
+    } catch (e) {
+        console.log("Global error:", e.message);
     }
-
-    console.log("Scan finished");
 }
 
-// تشغيل كل دقيقة
-setInterval(run, 60000);
-run();
+// مراقبة الوقت كل دقيقة
+setInterval(() => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    // التحقق: هل نحن في بداية الساعة (الدقيقة 0) والساعة تغيرت؟
+    if (currentMinute === 0 && currentHour !== lastProcessedHour) {
+        lastProcessedHour = currentHour;
+        runBatchedScan();
+    }
+}, 60000);
