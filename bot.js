@@ -25,30 +25,31 @@ function EMA(data, period) {
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
-        const ohlcv = await exchange.fetchOHLCV(formatted, "1h", undefined, 60);
+        const ohlcv = await exchange.fetchOHLCV(formatted, "1h", undefined, 100);
         
         if (ohlcv.length < 50) return;
 
         const closes = ohlcv.map(c => c[4]);
         
         const prevCloses = closes.slice(0, -1);
+        const currCloses = closes;
+
         const ema5Prev = EMA(prevCloses.slice(-50), 5);
         const ema25Prev = EMA(prevCloses.slice(-50), 25);
         
-        const currCloses = closes;
         const ema5Curr = EMA(currCloses.slice(-50), 5);
         const ema25Curr = EMA(currCloses.slice(-50), 25);
 
-        const wasBelow = ema5Prev < ema25Prev;
-        const isAbove = ema5Curr > ema25Curr;
+        const wasBullish = ema5Prev > ema25Prev;
+        const isBullish = ema5Curr > ema25Curr;
 
-        if (wasBelow && isAbove) {
-            const message = `🟢 GOLDEN CROSS DETECTED
+        if (!wasBullish && isBullish) {
+            const message = `🟢 GOLDEN CROSS
 ━━━━━━━━━━━━
 💰 COIN: ${symbol}
-📈 EMA 5:  ${ema5Curr.toFixed(10)}
-📉 EMA 25: ${ema25Curr.toFixed(10)}
-━━━━━━━━━━━━
+📈 EMA5: ${ema5Curr.toFixed(8)}
+📉 EMA25: ${ema25Curr.toFixed(8)}
+📊 Gap: ${(ema5Curr - ema25Curr).toFixed(8)}
 ⏰ Time: ${new Date().toLocaleString()}`;
 
             await bot.sendMessage(CHAT_ID, message);
