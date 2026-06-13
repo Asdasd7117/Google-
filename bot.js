@@ -13,7 +13,6 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 let lastProcessedHour = -1;
 
-// دالة حساب الـ EMA
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
@@ -23,7 +22,6 @@ function EMA(data, period) {
     return ema;
 }
 
-// دالة فحص العملة
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
@@ -33,39 +31,31 @@ async function checkSymbol(symbol) {
 
         const closes = ohlcv.map(c => c[4]);
         
-        // حساب القيم للشمعة السابقة
         const prevCloses = closes.slice(0, -1);
         const ema5Prev = EMA(prevCloses.slice(-50), 5);
         const ema25Prev = EMA(prevCloses.slice(-50), 25);
         
-        // حساب القيم للشمعة الحالية (المغلقة)
         const currCloses = closes;
         const ema5Curr = EMA(currCloses.slice(-50), 5);
         const ema25Curr = EMA(currCloses.slice(-50), 25);
 
-        // شرط التقاطع (السريع 5 يقطع البطيء 25 للأعلى)
-        const wasBullish = ema5Prev > ema25Prev;
-        const isBullish = ema5Curr > ema25Curr;
+        const wasBelow = ema5Prev < ema25Prev;
+        const isAbove = ema5Curr > ema25Curr;
 
-        if (!wasBullish && isBullish) {
-            // إرسال القيم للتأكد من دقة الحساب
+        if (wasBelow && isAbove) {
             const message = `🟢 GOLDEN CROSS DETECTED
 ━━━━━━━━━━━━
 💰 COIN: ${symbol}
-📈 EMA 5:  ${ema5Curr.toFixed(6)}
-📉 EMA 25: ${ema25Curr.toFixed(6)}
+📈 EMA 5:  ${ema5Curr.toFixed(10)}
+📉 EMA 25: ${ema25Curr.toFixed(10)}
 ━━━━━━━━━━━━
 ⏰ Time: ${new Date().toLocaleString()}`;
 
             await bot.sendMessage(CHAT_ID, message);
-            console.log("CROSS DETECTED:", symbol, "EMA5:", ema5Curr.toFixed(6), "EMA25:", ema25Curr.toFixed(6));
         }
-    } catch (e) {
-        // تجاهل الخطأ
-    }
+    } catch (e) {}
 }
 
-// دالة تشغيل الفحص
 async function runScan(start, end) {
     try {
         const tickers = await exchange.fetchTickers();
@@ -75,20 +65,15 @@ async function runScan(start, end) {
             .sort((a, b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0))
             .slice(start, end);
 
-        console.log(`Scanning ${allSymbols.length} symbols...`);
-
         const CHUNK_SIZE = 10;
         for (let i = 0; i < allSymbols.length; i += CHUNK_SIZE) {
             const chunk = allSymbols.slice(i, i + CHUNK_SIZE);
             await Promise.all(chunk.map(s => checkSymbol(s.replace("/", ""))));
             await sleep(500); 
         }
-    } catch (e) {
-        console.log("Scan error:", e.message);
-    }
+    } catch (e) {}
 }
 
-// المجدول (فحص 600 عملة في أول 3 دقائق من الساعة)
 setInterval(async () => {
     const now = new Date();
     const currentHour = now.getHours();
@@ -101,7 +86,7 @@ setInterval(async () => {
             await runScan(200, 400);
         } else if (currentMinute === 2) {
             await runScan(400, 600);
-            lastProcessedHour = currentHour; // التحديث لإنهاء الدورة
+            lastProcessedHour = currentHour;
         }
     }
 }, 60000);
