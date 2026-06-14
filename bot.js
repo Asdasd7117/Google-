@@ -8,18 +8,16 @@ const TelegramBot = require("node-telegram-bot-api");
 const TOKEN = "8648255240:AAHCuaLQSHmBoXM9j5AhH8cmHUpjr69p2YY";
 const CHAT_ID = "6814152338";
 
-// تم حذف { polling: true } - هذا هو سر حل المشكلة
 const bot = new TelegramBot(TOKEN);
-
-// إضافة أمر إضافي للتأكد من نظافة الاتصال
 bot.deleteWebHook();
 
 const exchange = new ccxt.kucoin({ enableRateLimit: true });
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-let lastProcessedHour = -1;
 
-// دالة حساب EMA
+let lastProcessedHour = -1;
+const alertedSymbols = new Set(); // ذاكرة لمنع تكرار التنبيهات
+
 function EMA(data, period) {
     const k = 2 / (period + 1);
     let ema = data[0];
@@ -32,27 +30,39 @@ function EMA(data, period) {
 async function checkSymbol(symbol) {
     try {
         const ohlcv = await exchange.fetchOHLCV(symbol, "1h", undefined, 100);
-
         if (ohlcv.length < 50) return;
 
+        // تحليل الشمعة الأخيرة المغلقة
+        const lastCandle = ohlcv[ohlcv.length - 2]; // الشمعة الأخيرة المغلقة
+        const open = lastCandle[1];
+        const close = lastCandle[4];
+        
         const closedCandles = ohlcv.slice(0, -1);
         const closes = closedCandles.map(c => c[4]);
         const volumes = closedCandles.map(c => c[5]);
 
         const currentVolume = volumes[volumes.length - 1];
         const avgVolume = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
-        const volumeStrong = currentVolume > avgVolume * 1.5;
-
+        
+        // الحسابات
         const ema5Curr = EMA(closes.slice(-50), 5);
         const ema25Curr = EMA(closes.slice(-50), 25);
-        
         const ema5Prev = EMA(closes.slice(-51, -1), 5);
         const ema25Prev = EMA(closes.slice(-51, -1), 25);
 
+        // الفلاتر
         const wasBullish = ema5Prev > ema25Prev;
         const isBullish = ema5Curr > ema25Curr;
+        const volumeStrong = currentVolume > avgVolume * 1.5;
+        const isGreen = close > open; // فلتر الشمعة الخضراء
+        const isOverextended = close > (ema5Curr * 1.02); // فلتر التشبع السعري (2%)
 
-        if (!wasBullish && isBullish && volumeStrong) {
+        // شرط التنبيه
+        if (!wasBullish && isBullish && volumeStrong && isGreen && !isOverextended) {
+            
+            // منع التكرار
+            if (alertedSymbols.has(symbol)) return;
+
             const volumeRatio = (currentVolume / avgVolume).toFixed(2);
             const message = `🟢 GOLDEN CROSS DETECTED
 ━━━━━━━━━━━━
@@ -61,14 +71,16 @@ async function checkSymbol(symbol) {
 📈 EMA5: ${ema5Curr.toFixed(8)}
 📉 EMA25: ${ema25Curr.toFixed(8)}
 
-📊 Volume Ratio: ${volumeRatio}x
+🔥 Volume Ratio: ${volumeRatio}x
+💎 Trend: Bullish & Safe
 ⏰ Time: ${new Date().toLocaleString()}`;
 
             await bot.sendMessage(CHAT_ID, message);
+            alertedSymbols.add(symbol); // حفظ العملة في الذاكرة
         }
 
     } catch (e) {
-        // تم تقليل ظهور الأخطاء في السجلات لتكون أكثر نظافة
+        // خطأ صامت للعملات التي تفشل في جلب بياناتها
     }
 }
 
@@ -98,15 +110,15 @@ setInterval(async () => {
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
 
+    // تحديث الساعة ومسح الذاكرة
     if (currentHour !== lastProcessedHour) {
-        if (currentMinute === 0 || currentMinute === 1 || currentMinute === 2) {
-            
-            if (currentMinute === 0) await runScan(0, 200);
-            else if (currentMinute === 1) await runScan(200, 400);
-            else if (currentMinute === 2) {
-                await runScan(400, 600);
-                lastProcessedHour = currentHour; 
-            }
-        }
+        alertedSymbols.clear(); // مسح الذاكرة لبداية ساعة جديدة
+        lastProcessedHour = currentHour;
+    }
+
+    if (currentMinute === 0 || currentMinute === 1 || currentMinute === 2) {
+        if (currentMinute === 0) await runScan(0, 200);
+        else if (currentMinute === 1) await runScan(200, 400);
+        else if (currentMinute === 2) await runScan(400, 600);
     }
 }, 60000);
