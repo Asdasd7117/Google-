@@ -30,26 +30,28 @@ async function checkSymbol(symbol) {
         if (ohlcv.length < 50) return;
 
         const closes = ohlcv.map(c => c[4]);
+        const volumes = ohlcv.map(c => c[5]);
         
-        const prevCloses = closes.slice(0, -1);
-        const currCloses = closes;
+        const currentVolume = volumes[volumes.length - 1];
+        const avgVolume = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
 
+        const prevCloses = closes.slice(0, -1);
         const ema5Prev = EMA(prevCloses.slice(-50), 5);
         const ema25Prev = EMA(prevCloses.slice(-50), 25);
         
-        const ema5Curr = EMA(currCloses.slice(-50), 5);
-        const ema25Curr = EMA(currCloses.slice(-50), 25);
+        const ema5Curr = EMA(closes.slice(-50), 5);
+        const ema25Curr = EMA(closes.slice(-50), 25);
 
         const wasBullish = ema5Prev > ema25Prev;
         const isBullish = ema5Curr > ema25Curr;
 
-        if (!wasBullish && isBullish) {
-            const message = `🟢 GOLDEN CROSS
+        if (!wasBullish && isBullish && currentVolume > (avgVolume * 1.5)) {
+            const message = `🟢 GOLDEN CROSS (CONFIRMED)
 ━━━━━━━━━━━━
 💰 COIN: ${symbol}
-📈 EMA5: ${ema5Curr.toFixed(8)}
-📉 EMA25: ${ema25Curr.toFixed(8)}
-📊 Gap: ${(ema5Curr - ema25Curr).toFixed(8)}
+📈 EMA5: ${ema5Curr.toFixed(10)}
+📉 EMA25: ${ema25Curr.toFixed(10)}
+📊 Vol Factor: ${(currentVolume / avgVolume).toFixed(2)}x
 ⏰ Time: ${new Date().toLocaleString()}`;
 
             await bot.sendMessage(CHAT_ID, message);
