@@ -47,7 +47,7 @@ async function checkSymbol(symbol) {
                 .slice(-21, -1)
                 .reduce((a, b) => a + b, 0) / 20;
 
-        const volumeStrong = currentVolume > avgVolume * 2;
+        const volumeStrong = currentVolume > avgVolume * 1;
 
         const prevCloses = closes.slice(0, -1);
         const currCloses = closes;
