@@ -5,7 +5,7 @@ const ccxt = require("ccxt");
 const TelegramBot = require("node-telegram-bot-api");
 
 // الإعدادات
-const TOKEN = "8648255240:AAHSyARnljC9I5me7_qg0L283lio49JsGP4";
+const TOKEN = "8648255240:AAHCuaLQSHmBoXM9j5AhH8cmHUpjr69p2YY";
 const CHAT_ID = "6814152338";
 
 const bot = new TelegramBot(TOKEN, { polling: true });
