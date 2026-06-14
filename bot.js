@@ -16,7 +16,7 @@ let lastProcessedMinute = -1;
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
-        const ohlcv = await exchange.fetchOHLCV(formatted, "1h", undefined, 25);
+        const ohlcv = await exchange.fetchOHLCV(formatted, "15m", undefined, 96);
         
         if (ohlcv.length < 24) return;
 
@@ -29,14 +29,16 @@ async function checkSymbol(symbol) {
         const highestPrice = Math.max(...last24hHighs);
         
         const currentVolume = volumes[volumes.length - 1];
-        const avgVolume = volumes.slice(0, -1).reduce((a, b) => a + b, 0) / 24;
+        const avgVolume = volumes.slice(0, -1).reduce((a, b) => a + b, 0) / 95;
 
-        if (currentPrice > highestPrice && currentVolume > (avgVolume * 2)) {
-            const message = `🚀 BREAKOUT DETECTED
+        const isTooLate = currentPrice > (highestPrice * 1.015);
+
+        if (currentPrice > highestPrice && currentVolume > (avgVolume * 2) && !isTooLate) {
+            const message = `⚡ FAST BREAKOUT
 ━━━━━━━━━━━━
 💰 COIN: ${symbol}
-📈 Price: ${currentPrice.toFixed(10)}
-🔝 24h High: ${highestPrice.toFixed(10)}
+📈 Price: ${currentPrice.toFixed(8)}
+🔝 24h High: ${highestPrice.toFixed(8)}
 📊 Vol Spike: ${(currentVolume / avgVolume).toFixed(2)}x
 ⏰ Time: ${new Date().toLocaleString()}`;
 
