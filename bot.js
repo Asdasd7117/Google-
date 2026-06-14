@@ -11,47 +11,33 @@ const bot = new TelegramBot(TOKEN);
 const exchange = new ccxt.kucoin({ enableRateLimit: true });
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-let lastProcessedHour = -1;
-
-function EMA(data, period) {
-    const k = 2 / (period + 1);
-    let ema = data[0];
-    for (let i = 1; i < data.length; i++) {
-        ema = (data[i] - ema) * k + ema;
-    }
-    return ema;
-}
+let lastProcessedMinute = -1;
 
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
-        const ohlcv = await exchange.fetchOHLCV(formatted, "1h", undefined, 100);
+        const ohlcv = await exchange.fetchOHLCV(formatted, "1h", undefined, 25);
         
-        if (ohlcv.length < 50) return;
+        if (ohlcv.length < 24) return;
 
-        const closes = ohlcv.map(c => c[4]);
+        const prices = ohlcv.map(c => c[4]);
+        const highs = ohlcv.map(c => c[2]);
         const volumes = ohlcv.map(c => c[5]);
+
+        const currentPrice = prices[prices.length - 1];
+        const last24hHighs = highs.slice(0, -1);
+        const highestPrice = Math.max(...last24hHighs);
         
         const currentVolume = volumes[volumes.length - 1];
-        const avgVolume = volumes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
+        const avgVolume = volumes.slice(0, -1).reduce((a, b) => a + b, 0) / 24;
 
-        const prevCloses = closes.slice(0, -1);
-        const ema5Prev = EMA(prevCloses.slice(-50), 5);
-        const ema25Prev = EMA(prevCloses.slice(-50), 25);
-        
-        const ema5Curr = EMA(closes.slice(-50), 5);
-        const ema25Curr = EMA(closes.slice(-50), 25);
-
-        const wasBullish = ema5Prev > ema25Prev;
-        const isBullish = ema5Curr > ema25Curr;
-
-        if (!wasBullish && isBullish && currentVolume > (avgVolume * 1.5)) {
-            const message = `🟢 GOLDEN CROSS (CONFIRMED)
+        if (currentPrice > highestPrice && currentVolume > (avgVolume * 2)) {
+            const message = `🚀 BREAKOUT DETECTED
 ━━━━━━━━━━━━
 💰 COIN: ${symbol}
-📈 EMA5: ${ema5Curr.toFixed(10)}
-📉 EMA25: ${ema25Curr.toFixed(10)}
-📊 Vol Factor: ${(currentVolume / avgVolume).toFixed(2)}x
+📈 Price: ${currentPrice.toFixed(10)}
+🔝 24h High: ${highestPrice.toFixed(10)}
+📊 Vol Spike: ${(currentVolume / avgVolume).toFixed(2)}x
 ⏰ Time: ${new Date().toLocaleString()}`;
 
             await bot.sendMessage(CHAT_ID, message);
@@ -79,17 +65,14 @@ async function runScan(start, end) {
 
 setInterval(async () => {
     const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
+    const m = now.getMinutes();
 
-    if (currentHour !== lastProcessedHour) {
-        if (currentMinute === 0) {
-            await runScan(0, 200);
-        } else if (currentMinute === 1) {
-            await runScan(200, 400);
-        } else if (currentMinute === 2) {
-            await runScan(400, 600);
-            lastProcessedHour = currentHour;
-        }
+    if (m % 5 === 0 && m !== lastProcessedMinute) {
+        const slot = m / 5;
+        const start = slot * 50;
+        const end = start + 50;
+        
+        await runScan(start, end);
+        lastProcessedMinute = m;
     }
 }, 60000);
