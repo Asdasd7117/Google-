@@ -13,33 +13,43 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 let lastProcessedMinute = -1;
 
+function calculateEMA(data, period) {
+    const k = 2 / (period + 1);
+    let ema = data[0];
+    for (let i = 1; i < data.length; i++) {
+        ema = (data[i] - ema) * k + ema;
+    }
+    return ema;
+}
+
 async function checkSymbol(symbol) {
     try {
         const formatted = symbol.replace("USDT", "/USDT");
-        const ohlcv = await exchange.fetchOHLCV(formatted, "15m", undefined, 96);
+        const ohlcv = await exchange.fetchOHLCV(formatted, "15m", undefined, 150);
         
-        if (ohlcv.length < 24) return;
+        if (ohlcv.length < 100) return;
 
-        const prices = ohlcv.map(c => c[4]);
-        const highs = ohlcv.map(c => c[2]);
-        const volumes = ohlcv.map(c => c[5]);
-
-        const currentPrice = prices[prices.length - 1];
-        const last24hHighs = highs.slice(0, -1);
-        const highestPrice = Math.max(...last24hHighs);
+        const closes = ohlcv.map(c => c[4]);
+        const lows = ohlcv.map(c => c[3]);
         
-        const currentVolume = volumes[volumes.length - 1];
-        const avgVolume = volumes.slice(0, -1).reduce((a, b) => a + b, 0) / 95;
+        const prevCloses = closes.slice(0, -1);
+        const currClose = closes[closes.length - 1];
+        const prevClose = closes[closes.length - 2];
+        const currLow = lows[lows.length - 1];
 
-        const isTooLate = currentPrice > (highestPrice * 1.015);
+        const ema99Prev = calculateEMA(prevCloses.slice(-100), 99);
+        const ema99Curr = calculateEMA(closes.slice(-100), 99);
 
-        if (currentPrice > highestPrice && currentVolume > (avgVolume * 2) && !isTooLate) {
-            const message = `⚡ FAST BREAKOUT
+        const isBreakout = (prevClose <= ema99Prev) && (currClose > ema99Curr);
+        const isBounce = (prevClose > ema99Prev) && (currLow <= ema99Curr) && (currClose > ema99Curr);
+
+        if (isBreakout || isBounce) {
+            const type = isBreakout ? "🚀 BREAKOUT" : "🛡️ BOUNCE/SUPPORT";
+            const message = `${type} (EMA 99)
 ━━━━━━━━━━━━
 💰 COIN: ${symbol}
-📈 Price: ${currentPrice.toFixed(8)}
-🔝 24h High: ${highestPrice.toFixed(8)}
-📊 Vol Spike: ${(currentVolume / avgVolume).toFixed(2)}x
+📈 Price: ${currClose.toFixed(8)}
+⚖️ EMA99: ${ema99Curr.toFixed(8)}
 ⏰ Time: ${new Date().toLocaleString()}`;
 
             await bot.sendMessage(CHAT_ID, message);
